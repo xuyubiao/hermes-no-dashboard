@@ -12,6 +12,14 @@ RUN curl -fsSL -o /tmp/picoclaw.tar.gz \
     test -x /usr/local/bin/picoclaw && test -x /usr/local/bin/picoclaw-launcher && \
     echo "picoclaw binaries installed"
 
+# TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
+COPY tcp-forward.py /usr/local/bin/tcp-forward.py
+RUN chmod +x /usr/local/bin/tcp-forward.py
+
+# Dashboard 404 placeholder (for hermes mode with dashboard disabled)
+COPY dashboard-placeholder.py /usr/local/bin/dashboard-placeholder.py
+RUN chmod +x /usr/local/bin/dashboard-placeholder.py
+
 # s6 dashboard: also respect AGENT_TYPE (stay down in picoclaw mode)
 RUN python3 - <<'PYEOF'
 p = "/etc/s6-overlay/s6-rc.d/dashboard/run"
@@ -43,7 +51,6 @@ case "${AGENT_TYPE:-hermes}" in
         echo "entrypoint: AGENT_TYPE=picoclaw" >&2
         export PICOCLAW_HOME="${PICOCLAW_HOME:-/data/.picoclaw}"
         mkdir -p "$PICOCLAW_HOME"
-        # Mutual exclusion: bring down hermes s6 gateway service
         if [ -d /run/service/gateway-default ]; then
             s6-svc -d /run/service/gateway-default 2>/dev/null || true
             echo "entrypoint: stopped hermes gateway-default" >&2
@@ -53,36 +60,7 @@ case "${AGENT_TYPE:-hermes}" in
             echo "entrypoint: starting picoclaw-launcher on 0.0.0.0:18800" >&2
             picoclaw-launcher -public &
             echo "entrypoint: WebUI publicly accessible via service URL (forwarded to :18800)" >&2
-            # TCP forward 8080 -> 127.0.0.1:18800 for public access
-            python3 -c '
-import socket, threading
-def _fwd(src, dst):
-    try:
-        while True:
-            d = src.recv(65536)
-            if not d: break
-            dst.sendall(d)
-    except Exception: pass
-    finally:
-        try: src.close()
-        except Exception: pass
-        try: dst.close()
-        except Exception: pass
-def _handle(c):
-    try:
-        u = socket.create_connection(("127.0.0.1", 18800), timeout=10)
-    except Exception:
-        c.close(); return
-    threading.Thread(target=_fwd, args=(c, u), daemon=True).start()
-    _fwd(u, c)
-_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-_s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-_s.bind(("0.0.0.0", 8080))
-_s.listen(100)
-while True:
-    _c, _ = _s.accept()
-    threading.Thread(target=_handle, args=(_c,), daemon=True).start()
-' &
+            python3 /usr/local/bin/tcp-forward.py &
             export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-18789}"
         else
             export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-8080}"
@@ -91,22 +69,11 @@ while True:
         exec picoclaw gateway
         ;;
     *)
-        # hermes mode: respect HERMES_DASHBOARD (default: disabled)
         case "${HERMES_DASHBOARD:-}" in
             1|true|TRUE|True|yes|YES|Yes) ;;
             *)
                 echo "entrypoint: dashboard disabled, starting placeholder on port ${HERMES_DASHBOARD_PORT:-8080}" >&2
-                exec python3 -c '
-import http.server, os
-_PORT = int(os.environ.get("HERMES_DASHBOARD_PORT", "8080"))
-class _H(http.server.BaseHTTPRequestHandler):
-    def _deny(self):
-        self.send_response(404); self.end_headers()
-        self.wfile.write(b"dashboard disabled")
-    do_GET = _deny; do_POST = _deny; do_PUT = _deny; do_DELETE = _deny
-    def log_message(self, *a): pass
-http.server.HTTPServer(("0.0.0.0", _PORT), _H).serve_forever()
-'
+                exec python3 /usr/local/bin/dashboard-placeholder.py
                 ;;
         esac
         ;;
@@ -124,7 +91,7 @@ PYEOF
 
 # Sanity checks
 RUN bash -n /entrypoint.sh && \
+    python3 -m py_compile /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py && \
     grep -q "AGENT_TYPE" /entrypoint.sh && \
-    grep -q "HERMES_DASHBOARD" /entrypoint.sh && \
     grep -q "AGENT_TYPE" /etc/s6-overlay/s6-rc.d/dashboard/run && \
     which picoclaw picoclaw-launcher
