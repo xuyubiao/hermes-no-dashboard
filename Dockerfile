@@ -33,9 +33,6 @@ RUN chmod +x /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.
 #     print("dashboard run patched")
 # PYEOF
 
-# Debug: inspect base entrypoint structure
-RUN echo "=== First 30 lines ===" && head -30 /entrypoint.sh
-
 # Patch /entrypoint.sh: AGENT_TYPE switch
 RUN python3 - <<'PYEOF'
 with open("/entrypoint.sh") as f:
@@ -48,7 +45,7 @@ case "${AGENT_TYPE:-hermes}" in
     picoclaw)
         echo "entrypoint: AGENT_TYPE=picoclaw" >&2
         export PICOCLAW_HOME="${PICOCLAW_HOME:-/data/.picoclaw}"
-        mkdir -p "$PICOCLAW_HOME"
+        mkdir -p "$PICOCLAW_HOME" 2>/dev/null || echo "entrypoint: warning: cannot mkdir $PICOCLAW_HOME (create it manually via exec)" >&2
         if [ -d /run/service/gateway-default ]; then
             s6-svc -d /run/service/gateway-default 2>/dev/null || true
             echo "entrypoint: stopped hermes gateway-default" >&2
