@@ -1,22 +1,42 @@
 # hermes-no-dashboard
 
 Custom Hermes image based on `ghcr.io/insforge/insta-oss/templates/hermes:2.3.2`
-with the dashboard disabled.
+with the dashboard disabled by default, plus an optional **picoclaw** agent.
 
-## What changed
+## Agent selection
 
-`/entrypoint.sh` in the upstream image unconditionally ends with
-`exec hermes dashboard ...`. This image patches it at build time to respect
-the `HERMES_DASHBOARD` environment variable (same semantics as the s6
-dashboard service):
+`AGENT_TYPE` (env/Secret) picks which agent runs. Only one runs at a time.
 
-- `HERMES_DASHBOARD=1/true/yes` → dashboard starts (upstream behavior)
-- anything else / unset → entrypoint prints a note and `exec sleep infinity`
+| `AGENT_TYPE` | Behavior |
+|---|---|
+| unset / `hermes` (default) | Hermes gateway. Dashboard follows `HERMES_DASHBOARD` (see below). |
+| `picoclaw` | PicoClaw gateway (v0.3.1, pinned). Hermes s6 services are stopped. |
 
-s6 stays PID 1 and keeps supervising `gateway-default` independently, so the
-gateway is unaffected.
+## Hermes mode
 
-## Usage
+`/entrypoint.sh` respects `HERMES_DASHBOARD`:
 
-Set `HERMES_DASHBOARD=false` (or leave unset) on the compute service and deploy
-`ghcr.io/xuyubiao/hermes-no-dashboard:2.3.2`.
+- `HERMES_DASHBOARD=1/true/yes` → dashboard starts on 8080 (upstream behavior)
+- unset/false (default) → dashboard off; a minimal 404 placeholder listens on
+  8080 so the platform health check passes
+
+## PicoClaw mode (`AGENT_TYPE=picoclaw`)
+
+- Binaries: `picoclaw` + `picoclaw-launcher` v0.3.1 (pinned, linux amd64)
+- `PICOCLAW_HOME` defaults to `/data/.picoclaw` (persistent volume); override via Secret
+- `PICOCLAW_GATEWAY_HOST` defaults to `0.0.0.0`
+- No auto `onboard` — write `$PICOCLAW_HOME/config.json` yourself
+
+| `PICOCLAW_WEB_UI` | 8080 (public) | 18800 | gateway port |
+|---|---|---|---|
+| unset/false | gateway `/health` | — | 8080 |
+| `true` | TCP forward → 18800 (WebUI) | `picoclaw-launcher -public` | 18789 (internal) |
+
+With `PICOCLAW_WEB_UI=true`, open the service's public URL in a browser to
+reach the launcher WebUI.
+
+## Secrets
+
+Set in InstaCloud: `AGENT_TYPE`, `PICOCLAW_WEB_UI`, `PICOCLAW_HOME`,
+plus any `PICOCLAW_*` / `PC_*` picoclaw config. Changing a secret needs a
+`restart` (env is resolved at deploy/restart time).
