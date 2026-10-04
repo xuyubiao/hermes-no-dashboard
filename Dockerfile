@@ -64,7 +64,7 @@ case "${AGENT_TYPE:-hermes}" in
         # Run gateway in background; keep container alive if it exits (e.g. no config yet)
         picoclaw gateway &
         _gw_pid=$!
-        wait $_gw_pid
+        wait $_gw_pid || true
         _gw_code=$?
         echo "entrypoint: picoclaw gateway exited (code $_gw_code), keeping container alive" >&2
         # Ensure 8080 stays listening for health check
