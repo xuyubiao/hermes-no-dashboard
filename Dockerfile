@@ -14,13 +14,12 @@ RUN curl -fsSL -o /tmp/picoclaw.tar.gz \
 
 # TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
 COPY tcp-forward.py /usr/local/bin/tcp-forward.py
-RUN chmod +x /usr/local/bin/tcp-forward.py
-
 # Dashboard 404 placeholder (for hermes mode with dashboard disabled)
 COPY dashboard-placeholder.py /usr/local/bin/dashboard-placeholder.py
-RUN chmod +x /usr/local/bin/dashboard-placeholder.py
+RUN chmod +x /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py && \
+    python3 -m py_compile /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py
 
-# s6 dashboard: also respect AGENT_TYPE (stay down in picoclaw mode)
+# s6 dashboard: stay down in picoclaw mode
 RUN python3 - <<'PYEOF'
 p = "/etc/s6-overlay/s6-rc.d/dashboard/run"
 with open(p) as f:
@@ -32,13 +31,9 @@ if "AGENT_TYPE" not in content:
     with open(p, "w") as f:
         f.write("\n".join(lines))
     print("dashboard run patched")
-else:
-    print("dashboard run already patched")
 PYEOF
 
-# Patch /entrypoint.sh:
-#   AGENT_TYPE=picoclaw -> run picoclaw (gateway, +launcher if PICOCLAW_WEB_UI=true)
-#   default (hermes)    -> HERMES_DASHBOARD gate (dashboard or 404 placeholder on 8080)
+# Patch /entrypoint.sh: AGENT_TYPE switch
 RUN python3 - <<'PYEOF'
 with open("/entrypoint.sh") as f:
     lines = f.readlines()
@@ -66,7 +61,18 @@ case "${AGENT_TYPE:-hermes}" in
             export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-8080}"
         fi
         echo "entrypoint: starting picoclaw gateway on ${PICOCLAW_GATEWAY_HOST}:${PICOCLAW_GATEWAY_PORT}" >&2
-        exec picoclaw gateway
+        # Run gateway in background; keep container alive if it exits (e.g. no config yet)
+        picoclaw gateway &
+        _gw_pid=$!
+        wait $_gw_pid
+        _gw_code=$?
+        echo "entrypoint: picoclaw gateway exited (code $_gw_code), keeping container alive" >&2
+        # Ensure 8080 stays listening for health check
+        if [ "${PICOCLAW_WEB_UI:-}" != "true" ]; then
+            exec python3 /usr/local/bin/dashboard-placeholder.py
+        else
+            exec sleep infinity
+        fi
         ;;
     *)
         case "${HERMES_DASHBOARD:-}" in
@@ -89,9 +95,7 @@ with open("/entrypoint.sh", "w") as f:
 print("entrypoint patched")
 PYEOF
 
-# Sanity checks
 RUN bash -n /entrypoint.sh && \
-    python3 -m py_compile /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py && \
     grep -q "AGENT_TYPE" /entrypoint.sh && \
     grep -q "AGENT_TYPE" /etc/s6-overlay/s6-rc.d/dashboard/run && \
     which picoclaw picoclaw-launcher
