@@ -34,7 +34,7 @@ RUN chmod +x /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.
 # PYEOF
 
 # Debug: inspect base entrypoint structure
-RUN echo "=== Lines containing 'exec hermes' ===" && grep -n "exec hermes" /entrypoint.sh && echo "=== Last 5 lines ===" && tail -5 /entrypoint.sh
+RUN echo "=== First 30 lines ===" && head -30 /entrypoint.sh
 
 # Patch /entrypoint.sh: AGENT_TYPE switch
 RUN python3 - <<'PYEOF'
