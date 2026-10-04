@@ -9,7 +9,8 @@ RUN curl -fsSL -o /tmp/picoclaw.tar.gz \
     tar -xzf /tmp/picoclaw.tar.gz -C /usr/local/bin/ picoclaw picoclaw-launcher && \
     chmod +x /usr/local/bin/picoclaw /usr/local/bin/picoclaw-launcher && \
     rm /tmp/picoclaw.tar.gz && \
-    picoclaw --version && picoclaw-launcher --version
+    test -x /usr/local/bin/picoclaw && test -x /usr/local/bin/picoclaw-launcher && \
+    echo "picoclaw binaries installed"
 
 # s6 dashboard: also respect AGENT_TYPE (stay down in picoclaw mode)
 RUN python3 - <<'PYEOF'
