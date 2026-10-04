@@ -19,19 +19,19 @@ COPY dashboard-placeholder.py /usr/local/bin/dashboard-placeholder.py
 RUN chmod +x /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py && \
     python3 -m py_compile /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py
 
-# s6 dashboard: stay down in picoclaw mode
-RUN python3 - <<'PYEOF'
-p = "/etc/s6-overlay/s6-rc.d/dashboard/run"
-with open(p) as f:
-    content = f.read()
-guard = '# Patched: stay down when AGENT_TYPE=picoclaw\ncase "${AGENT_TYPE:-hermes}" in\n    picoclaw) exit 0 ;;\nesac'
-if "AGENT_TYPE" not in content:
-    lines = content.split("\n")
-    lines.insert(1, guard)
-    with open(p, "w") as f:
-        f.write("\n".join(lines))
-    print("dashboard run patched")
-PYEOF
+# s6 dashboard: stay down in picoclaw mode (DISABLED for debugging)
+# RUN python3 - <<'PYEOF'
+# p = "/etc/s6-overlay/s6-rc.d/dashboard/run"
+# with open(p) as f:
+#     content = f.read()
+# guard = '# Patched: stay down when AGENT_TYPE=picoclaw\ncase "${AGENT_TYPE:-hermes}" in\n    picoclaw) exit 0 ;;\nesac'
+# if "AGENT_TYPE" not in content:
+#     lines = content.split("\n")
+#     lines.insert(1, guard)
+#     with open(p, "w") as f:
+#         f.write("\n".join(lines))
+#     print("dashboard run patched")
+# PYEOF
 
 # Patch /entrypoint.sh: AGENT_TYPE switch
 RUN python3 - <<'PYEOF'
@@ -97,5 +97,4 @@ PYEOF
 
 RUN bash -n /entrypoint.sh && \
     grep -q "AGENT_TYPE" /entrypoint.sh && \
-    grep -q "AGENT_TYPE" /etc/s6-overlay/s6-rc.d/dashboard/run && \
     which picoclaw picoclaw-launcher
