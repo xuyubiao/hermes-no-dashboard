@@ -19,8 +19,8 @@ Tailscale, and sshd.
 | `PICOCLAW_HOME` | `/data/.picoclaw` | Picoclaw 的数据目录（`config.json`、workspace、session）。默认 `/data/.picoclaw`；**`config.json` 需手动进容器写**，镜像不做 `onboard` 预初始化 |
 | `PICOCLAW_WEB_UI` | `true` / `false` | 仅 picoclaw 模式有效。`true` → 后台起 `picoclaw-launcher -public`（0.0.0.0:18800），公网 URL 转发到 WebUI；gateway 改到内网 18789。`false`/不设 → gateway 直接监听 8080 |
 | `TAILSCALE_AUTHKEY` | `tskey-auth-***` | Tailscale 认证 key。**优先用已有 state**：`/data/tailscaled.state` 存在则直接 `tailscale up` 恢复会话（不耗 key）；无 state 才用 key；两者皆无则跳过不启动。hostname 默认 `instacloud-vm`（`TAILSCALE_HOSTNAME` 可改） |
-| `TELEGRAM_ALLOWED_USERS` | `12345678` | Telegram 渠道的用户白名单（用户 ID，多个用逗号分隔）。空则允许所有人 |
-| `TELEGRAM_BOT_TOKEN` | `123456:ABC-***` | Telegram Bot 的 token（找 @BotFather 拿）。picoclaw 通过它收发 Telegram 消息 |
+| `TELEGRAM_ALLOWED_USERS` | `12345678` | **Hermes** Telegram 渠道的用户白名单（用户 ID，多个用逗号分隔）。空则允许所有人 |
+| `TELEGRAM_BOT_TOKEN` | `123456:ABC-***` | **Hermes** Telegram Bot 的 token（找 @BotFather 拿）。Hermes 通过它收发 Telegram 消息 |
 
 ## 端口速查
 
