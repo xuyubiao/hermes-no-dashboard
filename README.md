@@ -1,59 +1,45 @@
 # hermes-no-dashboard
 
 Custom Hermes image based on `ghcr.io/insforge/insta-oss/templates/hermes:2.3.2`
-with the dashboard disabled by default, plus an optional **picoclaw** agent.
+with the dashboard disabled by default, plus an optional **picoclaw** agent,
+Tailscale, and sshd.
 
-## Agent selection
+## Secrets / 环境变量一览
 
-`AGENT_TYPE` (env/Secret) picks which agent runs. Only one runs at a time.
+在 InstaCloud 控制台 → Secrets 配置。改完后 `restart` 服务生效
+（环境变量在 deploy/restart 时 bake 进容器）。
 
-| `AGENT_TYPE` | Behavior |
-|---|---|
-| unset / `hermes` (default) | Hermes gateway. Dashboard follows `HERMES_DASHBOARD` (see below). |
-| `picoclaw` | PicoClaw gateway (v0.3.1, pinned). Hermes s6 services are stopped. |
+| 变量 | 示例值 | 说明 |
+|---|---|---|
+| `ADMIN_USERNAME` | `admin` | Hermes dashboard 的登录用户名（hermes 模式启用 dashboard 时用）。不可含冒号、换行或以 `-` 开头 |
+| `ADMIN_PASSWORD` | `***` | Hermes dashboard 的登录密码 |
+| `AGENT_TYPE` | `hermes` / `picoclaw` | **总开关**，决定跑哪个 agent。默认 `hermes`；设为 `picoclaw` 则只跑 picoclaw（互斥，hermes 的 s6 gateway 会被停掉） |
+| `HERMES_DASHBOARD` | `false` | 仅 hermes 模式有效。`true`/`1`/`yes` → dashboard 监听 8080；其他值/不设 → dashboard 关闭，8080 起 404 占位服务（过平台健康检查） |
+| `HERMES_HOME` | `/data/.hermes` | Hermes 的数据目录（config、gateway 状态等）。默认 `/data/.hermes`，持久化在 volume 上 |
+| `PICOCLAW_HOME` | `/data/.picoclaw` | Picoclaw 的数据目录（`config.json`、workspace、session）。默认 `/data/.picoclaw`；**`config.json` 需手动进容器写**，镜像不做 `onboard` 预初始化 |
+| `PICOCLAW_WEB_UI` | `true` / `false` | 仅 picoclaw 模式有效。`true` → 后台起 `picoclaw-launcher -public`（0.0.0.0:18800），公网 URL 转发到 WebUI；gateway 改到内网 18789。`false`/不设 → gateway 直接监听 8080 |
+| `TAILSCALE_AUTHKEY` | `tskey-auth-***` | Tailscale 认证 key。**优先用已有 state**：`/data/tailscaled.state` 存在则直接 `tailscale up` 恢复会话（不耗 key）；无 state 才用 key；两者皆无则跳过不启动。hostname 默认 `instacloud-vm`（`TAILSCALE_HOSTNAME` 可改） |
+| `TELEGRAM_ALLOWED_USERS` | `12345678` | Telegram 渠道的用户白名单（用户 ID，多个用逗号分隔）。空则允许所有人 |
+| `TELEGRAM_BOT_TOKEN` | `123456:ABC-***` | Telegram Bot 的 token（找 @BotFather 拿）。picoclaw 通过它收发 Telegram 消息 |
 
-## Hermes mode
+## 端口速查
 
-`/entrypoint.sh` respects `HERMES_DASHBOARD`:
-
-- `HERMES_DASHBOARD=1/true/yes` → dashboard starts on 8080 (upstream behavior)
-- unset/false (default) → dashboard off; a minimal 404 placeholder listens on
-  8080 so the platform health check passes
-
-## PicoClaw mode (`AGENT_TYPE=picoclaw`)
-
-- Binaries: `picoclaw` + `picoclaw-launcher` v0.3.1 (pinned, linux amd64)
-- `PICOCLAW_HOME` defaults to `/data/.picoclaw` (persistent volume); override via Secret
-- `PICOCLAW_GATEWAY_HOST` defaults to `0.0.0.0`
-- No auto `onboard` — write `$PICOCLAW_HOME/config.json` yourself
-
-| `PICOCLAW_WEB_UI` | 8080 (public) | 18800 | gateway port |
+| 模式 | 8080（公网路由） | 18800 | 22 |
 |---|---|---|---|
-| unset/false | gateway `/health` | — | 8080 |
-| `true` | TCP forward → 18800 (WebUI) | `picoclaw-launcher -public` | 18789 (internal) |
+| hermes（默认） | 404 占位 | — | sshd（仅 Tailscale 可达） |
+| hermes + `HERMES_DASHBOARD=true` | hermes dashboard | — | sshd |
+| picoclaw | gateway `/health` | — | sshd |
+| picoclaw + `PICOCLAW_WEB_UI=true` | → 转发到 18800（WebUI） | `picoclaw-launcher -public` | sshd |
 
-With `PICOCLAW_WEB_UI=true`, open the service's public URL in a browser to
-reach the launcher WebUI.
+## Tailscale + sshd
 
-## Secrets
+- `tailscaled` 以 `--tun=userspace-networking` 运行（容器无 TUN 权限），state 在 `/data/tailscaled.state`，重启不丢
+- `sshd` 始终启动（s6 服务，root 运行）。`PermitRootLogin prohibit-password` + `PasswordAuthentication no`，只允许 key 登录；root 公钥 baked 在镜像 `/root/.ssh/authorized_keys`
+- 22 端口无公网路由 → tailscale up 成功后，用 `ssh root@<tailscale-ip>`（如 `ssh root@100.74.236.40`）进容器
 
-Set in InstaCloud: `AGENT_TYPE`, `PICOCLAW_WEB_UI`, `PICOCLAW_HOME`,
-plus any `PICOCLAW_*` / `PC_*` picoclaw config. Changing a secret needs a
-`restart` (env is resolved at deploy/restart time).
+## 版本 pin
 
-## Tailscale (optional)
-
-Set `TAILSCALE_AUTHKEY` in Secrets to join a tailnet. `tailscaled` runs with
-`--tun=userspace-networking`; state persists at `/data/tailscaled.state`.
-
-- If state exists → `tailscale up` restores the session (no key needed)
-- Else if key set → `tailscale up --authkey=...`
-- Else → skipped
-
-Hostname defaults to `instacloud-vm` (`TAILSCALE_HOSTNAME` overrides).
-
-## sshd
-
-`sshd` always starts. Root login via the `id_rsa.pub` key only (no password).
-Port 22 has no public route — connect via the Tailscale IP once joined:
-`ssh root@<tailscale-ip>`.
+| 组件 | 版本 |
+|---|---|
+| picoclaw / picoclaw-launcher | `v0.3.1`（GitHub Releases 预编译包） |
+| tailscale / tailscaled | `1.102.4`（官方静态二进制） |
