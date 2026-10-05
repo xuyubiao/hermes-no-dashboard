@@ -44,6 +44,24 @@ RUN chmod 600 /root/.ssh/authorized_keys
 COPY start-tailscale.sh /usr/local/bin/start-tailscale.sh
 RUN chmod +x /usr/local/bin/start-tailscale.sh
 
+# s6 services: sshd (root) and tailscale (root)
+# sshd: longrun, no daemonize (-D), log to stderr (-e)
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/sshd && \
+    printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/sshd/type && \
+    printf '#!/command/with-contenv sh\nmkdir -p /run/sshd\nexec /usr/sbin/sshd -D -e\n' > /etc/s6-overlay/s6-rc.d/sshd/run && \
+    chmod +x /etc/s6-overlay/s6-rc.d/sshd/run && \
+    touch /etc/s6-overlay/s6-rc.d/user/contents.d/sshd && \
+    echo "sshd s6 service added"
+
+# tailscale: longrun wrapper (daemon + up)
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
+    printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/tailscale/type && \
+    printf '#!/command/with-contenv sh\n# Skip if no state and no key (finish 125 = stay down)\nif [ ! -f /data/tailscaled.state ] && [ -z "${TAILSCALE_AUTHKEY:-}" ]; then exit 0; fi\nexec /usr/local/bin/start-tailscale.sh\n' > /etc/s6-overlay/s6-rc.d/tailscale/run && \
+    printf '#!/command/with-contenv sh\nexit 125\n' > /etc/s6-overlay/s6-rc.d/tailscale/finish && \
+    chmod +x /etc/s6-overlay/s6-rc.d/tailscale/run /etc/s6-overlay/s6-rc.d/tailscale/finish && \
+    touch /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
+    echo "tailscale s6 service added"
+
 # TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
 COPY tcp-forward.py /usr/local/bin/tcp-forward.py
 # Dashboard 404 placeholder (for hermes mode with dashboard disabled)
@@ -72,16 +90,8 @@ with open("/entrypoint.sh") as f:
 
 for i, l in enumerate(lines):
     if l.strip().startswith("exec hermes dashboard"):
-        patch = """# Patched: infrastructure services (sshd always, tailscale if configured)
-# sshd: root key-only auth, for access via Tailscale
-mkdir -p /run/sshd
-echo "entrypoint: starting sshd" >&2
-/usr/sbin/sshd 2>/dev/null || echo "entrypoint: warning: sshd failed to start" >&2
-# tailscale: state first, then authkey, else skip (see start-tailscale.sh)
-/usr/local/bin/start-tailscale.sh &
-echo "entrypoint: tailscale starter launched" >&2
-
-# Patched: AGENT_TYPE switch (hermes default, picoclaw optional)
+        patch = """# Patched: AGENT_TYPE switch (hermes default, picoclaw optional)
+# Note: sshd and tailscale run as s6 services (see s6-rc.d/sshd, s6-rc.d/tailscale)
 case "${AGENT_TYPE:-hermes}" in
     picoclaw)
         echo "entrypoint: AGENT_TYPE=picoclaw" >&2
@@ -138,4 +148,8 @@ PYEOF
 
 RUN bash -n /entrypoint.sh && \
     grep -q "AGENT_TYPE" /entrypoint.sh && \
-    which picoclaw picoclaw-launcher
+    test -x /etc/s6-overlay/s6-rc.d/sshd/run && \
+    test -x /etc/s6-overlay/s6-rc.d/tailscale/run && \
+    test -f /etc/s6-overlay/s6-rc.d/user/contents.d/sshd && \
+    test -f /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
+    which picoclaw picoclaw-launcher tailscaled tailscale
