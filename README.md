@@ -40,3 +40,20 @@ reach the launcher WebUI.
 Set in InstaCloud: `AGENT_TYPE`, `PICOCLAW_WEB_UI`, `PICOCLAW_HOME`,
 plus any `PICOCLAW_*` / `PC_*` picoclaw config. Changing a secret needs a
 `restart` (env is resolved at deploy/restart time).
+
+## Tailscale (optional)
+
+Set `TAILSCALE_AUTHKEY` in Secrets to join a tailnet. `tailscaled` runs with
+`--tun=userspace-networking`; state persists at `/data/tailscaled.state`.
+
+- If state exists → `tailscale up` restores the session (no key needed)
+- Else if key set → `tailscale up --authkey=...`
+- Else → skipped
+
+Hostname defaults to `instacloud-vm` (`TAILSCALE_HOSTNAME` overrides).
+
+## sshd
+
+`sshd` always starts. Root login via the `id_rsa.pub` key only (no password).
+Port 22 has no public route — connect via the Tailscale IP once joined:
+`ssh root@<tailscale-ip>`.
