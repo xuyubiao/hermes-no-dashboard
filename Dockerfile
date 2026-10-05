@@ -12,6 +12,38 @@ RUN curl -fsSL -o /tmp/picoclaw.tar.gz \
     test -x /usr/local/bin/picoclaw && test -x /usr/local/bin/picoclaw-launcher && \
     echo "picoclaw binaries installed"
 
+# Install tailscale (pinned, static binaries, linux amd64)
+ARG TAILSCALE_VERSION=1.102.4
+RUN curl -fsSL -o /tmp/tailscale.tgz \
+        "https://pkgs.tailscale.com/stable/tailscale_${TAILSCALE_VERSION}_amd64.tgz" && \
+    tar -xzf /tmp/tailscale.tgz -C /tmp && \
+    cp /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscaled /tmp/tailscale_${TAILSCALE_VERSION}_amd64/tailscale /usr/local/bin/ && \
+    chmod +x /usr/local/bin/tailscaled /usr/local/bin/tailscale && \
+    rm -rf /tmp/tailscale.tgz /tmp/tailscale_${TAILSCALE_VERSION}_amd64 && \
+    test -x /usr/local/bin/tailscaled && test -x /usr/local/bin/tailscale && \
+    echo "tailscale binaries installed"
+
+# Install openssh-server, configure root key-only auth
+RUN apt-get update && apt-get install -y --no-install-recommends openssh-server && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /run/sshd /root/.ssh && chmod 700 /root/.ssh && \
+    ssh-keygen -A && \
+    printf '%s\n' \
+        "PermitRootLogin prohibit-password" \
+        "PasswordAuthentication no" \
+        "ChallengeResponseAuthentication no" \
+        "UsePAM no" \
+        >> /etc/ssh/sshd_config && \
+    echo "openssh-server installed"
+
+# Root authorized key (user-provided id_rsa.pub)
+COPY id_rsa.pub /root/.ssh/authorized_keys
+RUN chmod 600 /root/.ssh/authorized_keys
+
+# Tailscale startup helper
+COPY start-tailscale.sh /usr/local/bin/start-tailscale.sh
+RUN chmod +x /usr/local/bin/start-tailscale.sh
+
 # TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
 COPY tcp-forward.py /usr/local/bin/tcp-forward.py
 # Dashboard 404 placeholder (for hermes mode with dashboard disabled)
@@ -40,7 +72,16 @@ with open("/entrypoint.sh") as f:
 
 for i, l in enumerate(lines):
     if l.strip().startswith("exec hermes dashboard"):
-        patch = """# Patched: AGENT_TYPE switch (hermes default, picoclaw optional)
+        patch = """# Patched: infrastructure services (sshd always, tailscale if configured)
+# sshd: root key-only auth, for access via Tailscale
+mkdir -p /run/sshd
+echo "entrypoint: starting sshd" >&2
+/usr/sbin/sshd 2>/dev/null || echo "entrypoint: warning: sshd failed to start" >&2
+# tailscale: state first, then authkey, else skip (see start-tailscale.sh)
+/usr/local/bin/start-tailscale.sh &
+echo "entrypoint: tailscale starter launched" >&2
+
+# Patched: AGENT_TYPE switch (hermes default, picoclaw optional)
 case "${AGENT_TYPE:-hermes}" in
     picoclaw)
         echo "entrypoint: AGENT_TYPE=picoclaw" >&2
