@@ -29,14 +29,15 @@ if [ ! -S "$SOCK" ]; then
     exit 1
 fi
 
-if [ -f "$STATE_FILE" ]; then
-    echo "tailscale: state exists, bringing up (no authkey needed)" >&2
-    tailscale --socket="$SOCK" up --hostname="$HOSTNAME" || \
-        echo "tailscale: 'up' reported an issue (may already be up)" >&2
-elif [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
-    echo "tailscale: no state, using TAILSCALE_AUTHKEY" >&2
+if [ -n "${TAILSCALE_AUTHKEY:-}" ]; then
+    echo "tailscale: using TAILSCALE_AUTHKEY" >&2
     tailscale --socket="$SOCK" up --authkey="${TAILSCALE_AUTHKEY}" --hostname="$HOSTNAME" || \
-        echo "tailscale: 'up --authkey' failed (key may be single-use and consumed)" >&2
+        tailscale --socket="$SOCK" up --hostname="$HOSTNAME" || \
+        echo "tailscale: up failed" >&2
+else
+    echo "tailscale: no key, restoring from state" >&2
+    tailscale --socket="$SOCK" up --hostname="$HOSTNAME" || \
+        echo "tailscale: up failed (need authkey)" >&2
 fi
 
 echo "tailscale: up done, daemon pid $TPID" >&2
