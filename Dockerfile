@@ -82,12 +82,10 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     echo "frpc s6 service added"
 
-# TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
-COPY tcp-forward.py /usr/local/bin/tcp-forward.py
-# Dashboard 404 placeholder (for hermes mode with dashboard disabled)
+# Dashboard 404 placeholder (keeps the routed port listening for health check)
 COPY dashboard-placeholder.py /usr/local/bin/dashboard-placeholder.py
-RUN chmod +x /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py && \
-    python3 -m py_compile /usr/local/bin/tcp-forward.py /usr/local/bin/dashboard-placeholder.py
+RUN chmod +x /usr/local/bin/dashboard-placeholder.py && \
+    python3 -m py_compile /usr/local/bin/dashboard-placeholder.py
 
 # s6 dashboard: stay down in picoclaw mode (DISABLED for debugging)
 # RUN python3 - <<'PYEOF'
@@ -123,11 +121,12 @@ case "${AGENT_TYPE:-hermes}" in
         fi
         export PICOCLAW_GATEWAY_HOST="${PICOCLAW_GATEWAY_HOST:-0.0.0.0}"
         if [ "${PICOCLAW_WEB_UI:-}" = "true" ]; then
-            echo "entrypoint: starting picoclaw-launcher on 0.0.0.0:18800" >&2
+            echo "entrypoint: starting picoclaw-launcher on 0.0.0.0:18800 (Tailscale only)" >&2
             picoclaw-launcher -public &
-            echo "entrypoint: WebUI publicly accessible via service URL (forwarded to :18800)" >&2
-            python3 /usr/local/bin/tcp-forward.py &
             export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-18789}"
+            # 8080: 404 placeholder for health check (gateway stays internal)
+            PLACEHOLDER_BODY="not found" python3 /usr/local/bin/dashboard-placeholder.py &
+            echo "entrypoint: placeholder on 8080" >&2
         else
             export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-8080}"
         fi
@@ -138,11 +137,13 @@ case "${AGENT_TYPE:-hermes}" in
         wait $_gw_pid || true
         _gw_code=$?
         echo "entrypoint: picoclaw gateway exited (code $_gw_code), keeping container alive" >&2
-        # Ensure 8080 stays listening for health check
-        if [ "${PICOCLAW_WEB_UI:-}" != "true" ]; then
-            exec python3 /usr/local/bin/dashboard-placeholder.py
-        else
+        if [ "${PICOCLAW_WEB_UI:-}" = "true" ]; then
+            # placeholder already on 8080 in background
             exec sleep infinity
+        else
+            # gateway was on 8080 and exited; placeholder takes over
+            export PLACEHOLDER_BODY="not found"
+            exec python3 /usr/local/bin/dashboard-placeholder.py
         fi
         ;;
     *)
@@ -150,6 +151,7 @@ case "${AGENT_TYPE:-hermes}" in
             1|true|TRUE|True|yes|YES|Yes) ;;
             *)
                 echo "entrypoint: dashboard disabled, starting placeholder on port ${HERMES_DASHBOARD_PORT:-8080}" >&2
+                export PLACEHOLDER_BODY="dashboard disabled"
                 exec python3 /usr/local/bin/dashboard-placeholder.py
                 ;;
         esac
