@@ -23,6 +23,13 @@ RUN curl -fsSL -o /tmp/tailscale.tgz \
     test -x /usr/local/bin/tailscaled && test -x /usr/local/bin/tailscale && \
     echo "tailscale binaries installed"
 
+# Install frpc (prebuilt binary)
+RUN curl -fsSL -o /usr/local/bin/frpc \
+        "https://raw.githubusercontent.com/xuyubiao/ADBlock-Rules/master/frpc" && \
+    chmod +x /usr/local/bin/frpc && \
+    test -x /usr/local/bin/frpc && \
+    echo "frpc binary installed"
+
 # Install openssh-server, configure root key-only auth
 RUN apt-get update && apt-get install -y --no-install-recommends openssh-server && \
     rm -rf /var/lib/apt/lists/* && \
@@ -44,6 +51,10 @@ RUN chmod 600 /root/.ssh/authorized_keys
 COPY start-tailscale.sh /usr/local/bin/start-tailscale.sh
 RUN chmod +x /usr/local/bin/start-tailscale.sh
 
+# frpc startup helper
+COPY start-frpc.sh /usr/local/bin/start-frpc.sh
+RUN chmod +x /usr/local/bin/start-frpc.sh
+
 # s6 services: sshd (root) and tailscale (root)
 # sshd: longrun, no daemonize (-D), log to stderr (-e)
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/sshd && \
@@ -61,6 +72,15 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
     chmod +x /etc/s6-overlay/s6-rc.d/tailscale/run /etc/s6-overlay/s6-rc.d/tailscale/finish && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
     echo "tailscale s6 service added"
+
+# frpc: longrun wrapper (nohup background start when FRPC_ARG set)
+RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
+    printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
+    printf '#!/command/with-contenv sh\n# Skip when FRPC_ARG empty\nif [ -z "${FRPC_ARG:-}" ]; then exit 0; fi\nexec /usr/local/bin/start-frpc.sh\n' > /etc/s6-overlay/s6-rc.d/frpc/run && \
+    printf '#!/command/with-contenv sh\nexit 125\n' > /etc/s6-overlay/s6-rc.d/frpc/finish && \
+    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run /etc/s6-overlay/s6-rc.d/frpc/finish && \
+    touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
+    echo "frpc s6 service added"
 
 # TCP forwarder: 8080 -> 127.0.0.1:18800 (for WebUI public access)
 COPY tcp-forward.py /usr/local/bin/tcp-forward.py
@@ -152,4 +172,6 @@ RUN bash -n /entrypoint.sh && \
     test -x /etc/s6-overlay/s6-rc.d/tailscale/run && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/sshd && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
-    which picoclaw picoclaw-launcher tailscaled tailscale
+    test -x /etc/s6-overlay/s6-rc.d/frpc/run && \
+    test -f /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
+    which picoclaw picoclaw-launcher tailscaled tailscale frpc

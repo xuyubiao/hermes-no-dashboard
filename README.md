@@ -2,7 +2,7 @@
 
 Custom Hermes image based on `ghcr.io/insforge/insta-oss/templates/hermes:2.3.2`
 with the dashboard disabled by default, plus an optional **picoclaw** agent,
-Tailscale, and sshd.
+Tailscale, sshd, and optional frpc.
 
 ## Secrets / 环境变量一览
 
@@ -19,6 +19,7 @@ Tailscale, and sshd.
 | `PICOCLAW_HOME` | `/data/.picoclaw` | Picoclaw 的数据目录（`config.json`、workspace、session）。默认 `/data/.picoclaw`；**`config.json` 需手动进容器写**，镜像不做 `onboard` 预初始化 |
 | `PICOCLAW_WEB_UI` | `true` / `false` | 仅 picoclaw 模式有效。`true` → 后台起 `picoclaw-launcher -public`（0.0.0.0:18800），公网 URL 转发到 WebUI；gateway 改到内网 18789。`false`/不设 → gateway 直接监听 8080 |
 | `TAILSCALE_AUTHKEY` | `tskey-auth-***` | Tailscale 认证 key。**优先用已有 state**：`/data/tailscaled.state` 存在则直接 `tailscale up` 恢复会话（不耗 key）；无 state 才用 key；两者皆无则跳过不启动。hostname 默认 `instacloud-vm`（`TAILSCALE_HOSTNAME` 可改） |
+| `FRPC_ARG` | `-c /data/frpc.toml` | frp 客户端启动参数。非空 → 后台启动 `frpc ${FRPC_ARG}`；为空则不启动 |
 | `TELEGRAM_ALLOWED_USERS` | `12345678` | **Hermes** Telegram 渠道的用户白名单（用户 ID，多个用逗号分隔）。空则允许所有人 |
 | `TELEGRAM_BOT_TOKEN` | `123456:ABC-***` | **Hermes** Telegram Bot 的 token（找 @BotFather 拿）。Hermes 通过它收发 Telegram 消息 |
 
@@ -37,9 +38,16 @@ Tailscale, and sshd.
 - `sshd` 始终启动（s6 服务，root 运行）。`PermitRootLogin prohibit-password` + `PasswordAuthentication no`，只允许 key 登录；root 公钥 baked 在镜像 `/root/.ssh/authorized_keys`
 - 22 端口无公网路由 → tailscale up 成功后，用 `ssh root@<tailscale-ip>`（如 `ssh root@100.74.236.40`）进容器
 
+## frpc（frp 客户端）
+
+- 镜像内置 `frpc` 二进制（`/usr/local/bin/frpc`）
+- 设置 `FRPC_ARG` 后随容器启动（s6 服务），后台运行；为空则完全不启动
+- 配置文件需自行挂载/写入，如 `/data/frpc.toml`，通过 `FRPC_ARG=-c /data/frpc.toml` 指定
+
 ## 版本 pin
 
 | 组件 | 版本 |
 |---|---|
 | picoclaw / picoclaw-launcher | `v0.3.1`（GitHub Releases 预编译包） |
 | tailscale / tailscaled | `1.102.4`（官方静态二进制） |
+| frpc | 上游 master 分支预编译二进制（ADBlock-Rules 仓库） |
