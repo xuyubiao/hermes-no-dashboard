@@ -17,7 +17,6 @@ Tailscale, sshd, and optional frpc.
 | `HERMES_DASHBOARD` | `false` | 仅 hermes 模式有效。`true`/`1`/`yes` → dashboard 监听 8080；其他值/不设 → dashboard 关闭，8080 起 404 占位服务（过平台健康检查） |
 | `HERMES_HOME` | `/data/.hermes` | Hermes 的数据目录（config、gateway 状态等）。默认 `/data/.hermes`，持久化在 volume 上 |
 | `PICOCLAW_HOME` | `/data/.picoclaw` | Picoclaw 的数据目录（`config.json`、workspace、session）。默认 `/data/.picoclaw`；**`config.json` 需手动进容器写**，镜像不做 `onboard` 预初始化 |
-| `PICOCLAW_WEB_UI` | `true` / `false` | 仅 picoclaw 模式有效。`true` → 后台起 `picoclaw-launcher -public`（0.0.0.0:18800，**仅 Tailscale 可访问**，公网不暴露）；8080 放 404 占位；gateway 改到内网 18789。`false`/不设 → gateway 直接监听 8080 |
 | `TAILSCALE_AUTHKEY` | `tskey-auth-***` | Tailscale 认证 key。**优先用已有 state**：`/data/tailscaled.state` 存在则直接 `tailscale up` 恢复会话（不耗 key）；无 state 才用 key；两者皆无则跳过不启动。hostname 默认 `instacloud-vm`（`TAILSCALE_HOSTNAME` 可改） |
 | `FRPC_ARG` | `-c /data/frpc.toml` | frp 客户端启动参数。非空 → 后台启动 `frpc ${FRPC_ARG}`；为空则不启动 |
 | `TELEGRAM_ALLOWED_USERS` | `12345678` | **Hermes** Telegram 渠道的用户白名单（用户 ID，多个用逗号分隔）。空则允许所有人 |
@@ -29,8 +28,7 @@ Tailscale, sshd, and optional frpc.
 |---|---|---|---|
 | hermes（默认） | 404 占位 | — | sshd（仅 Tailscale 可达） |
 | hermes + `HERMES_DASHBOARD=true` | hermes dashboard | — | sshd |
-| picoclaw | gateway `/health` | — | sshd |
-| picoclaw + `PICOCLAW_WEB_UI=true` | 404 占位 | `picoclaw-launcher -public`（仅 Tailscale 可达，如 `http://100.74.236.40:18800`） | sshd |
+| picoclaw | 404 占位 | `picoclaw-launcher -public`（仅 Tailscale 可达，如 `http://100.74.236.40:18800`）；launcher 自动管理 gateway 生命周期 | sshd |
 
 ## Tailscale + sshd
 
