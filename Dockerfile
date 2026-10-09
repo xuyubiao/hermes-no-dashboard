@@ -122,14 +122,14 @@ case "${AGENT_TYPE:-hermes}" in
         export PICOCLAW_GATEWAY_HOST="${PICOCLAW_GATEWAY_HOST:-0.0.0.0}"
         if [ "${PICOCLAW_WEB_UI:-}" = "true" ]; then
             echo "entrypoint: starting picoclaw-launcher on 0.0.0.0:18800 (Tailscale only)" >&2
-            picoclaw-launcher -public &
-            export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-18789}"
-            # 8080: 404 placeholder for health check (gateway stays internal)
+            echo "entrypoint: launcher manages the gateway (auto-start when model configured)" >&2
+            # 8080: 404 placeholder for health check
             PLACEHOLDER_BODY="not found" python3 /usr/local/bin/dashboard-placeholder.py &
             echo "entrypoint: placeholder on 8080" >&2
-        else
-            export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-8080}"
+            # Launcher runs in foreground; it owns the gateway lifecycle
+            exec picoclaw-launcher -public
         fi
+        export PICOCLAW_GATEWAY_PORT="${PICOCLAW_GATEWAY_PORT:-8080}"
         echo "entrypoint: starting picoclaw gateway on ${PICOCLAW_GATEWAY_HOST}:${PICOCLAW_GATEWAY_PORT}" >&2
         # Run gateway in background; keep container alive if it exits (e.g. no config yet)
         picoclaw gateway &
@@ -137,14 +137,9 @@ case "${AGENT_TYPE:-hermes}" in
         wait $_gw_pid || true
         _gw_code=$?
         echo "entrypoint: picoclaw gateway exited (code $_gw_code), keeping container alive" >&2
-        if [ "${PICOCLAW_WEB_UI:-}" = "true" ]; then
-            # placeholder already on 8080 in background
-            exec sleep infinity
-        else
-            # gateway was on 8080 and exited; placeholder takes over
-            export PLACEHOLDER_BODY="not found"
-            exec python3 /usr/local/bin/dashboard-placeholder.py
-        fi
+        # gateway was on 8080 and exited; placeholder takes over
+        export PLACEHOLDER_BODY="not found"
+        exec python3 /usr/local/bin/dashboard-placeholder.py
         ;;
     *)
         case "${HERMES_DASHBOARD:-}" in
