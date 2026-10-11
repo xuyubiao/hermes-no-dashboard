@@ -31,7 +31,9 @@ fi
 
 if [ -f "$STATE_FILE" ]; then
     echo "tailscale: state exists, trying state-first login" >&2
-    if tailscale --socket="$SOCK" up --hostname="$HOSTNAME"; then
+    # timeout: stale state makes `tailscale up` hang on interactive login;
+    # don't block forever, fall through to authkey
+    if timeout 30 tailscale --socket="$SOCK" up --hostname="$HOSTNAME"; then
         # 2026-10-10: 不靠 state 文件存在判断登录态（tailscaled 首次启动会写只有
         # machine key 的 state，导致 10-05 的假阳性 bug），改靠 BackendState=Running
         for i in $(seq 1 15); do
