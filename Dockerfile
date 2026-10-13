@@ -51,10 +51,6 @@ RUN chmod 600 /root/.ssh/authorized_keys
 COPY start-tailscale.sh /usr/local/bin/start-tailscale.sh
 RUN chmod +x /usr/local/bin/start-tailscale.sh
 
-# frpc startup helper
-COPY start-frpc.sh /usr/local/bin/start-frpc.sh
-RUN chmod +x /usr/local/bin/start-frpc.sh
-
 # s6 services: sshd (root) and tailscale (root)
 # sshd: longrun, no daemonize (-D), log to stderr (-e)
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/sshd && \
@@ -73,11 +69,12 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
     echo "tailscale s6 service added"
 
-# frpc: longrun wrapper (nohup background start when FRPC_ARG set)
+# frpc: longrun, exec directly in foreground so s6 supervises it.
+# exit 3 = intentional skip (no FRPC_ARG); finish 125 on 3 = stay down, else restart.
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
     printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
-    printf '#!/command/with-contenv sh\n# Skip when FRPC_ARG empty\nif [ -z "${FRPC_ARG:-}" ]; then exit 0; fi\nexec /usr/local/bin/start-frpc.sh\n' > /etc/s6-overlay/s6-rc.d/frpc/run && \
-    printf '#!/command/with-contenv sh\nexit 125\n' > /etc/s6-overlay/s6-rc.d/frpc/finish && \
+    printf '#!/command/with-contenv sh\nif [ -z "${FRPC_ARG:-}" ]; then echo "frpc: FRPC_ARG empty, staying down" >&2; exit 3; fi\nexec /usr/local/bin/frpc ${FRPC_ARG}\n' > /etc/s6-overlay/s6-rc.d/frpc/run && \
+    printf '#!/command/with-contenv sh\n# $1 = run exit code; 3 = intentional skip -> stay down, else allow restart\nif [ "$1" = "3" ]; then exit 125; fi\nexit 0\n' > /etc/s6-overlay/s6-rc.d/frpc/finish && \
     chmod +x /etc/s6-overlay/s6-rc.d/frpc/run /etc/s6-overlay/s6-rc.d/frpc/finish && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     echo "frpc s6 service added"
