@@ -74,40 +74,26 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
 # if both fail, ignore (exit 0) so the rest of the boot continues.
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
     printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
-    cat > /etc/s6-overlay/s6-rc.d/frpc/run <<'FRPCEOF'
-#!/command/with-contenv sh
-# frpc launcher: args mode first (15s probe), then /data/frpc.ini, else ignore.
-if [ -z "${FRPC_ARG:-}" ]; then
-  echo "frpc: FRPC_ARG empty, skipping" >&2
-  exit 0
-fi
-/usr/local/bin/frpc ${FRPC_ARG} >/dev/null 2>&1 &
-pid=$!
-sleep 15
-if kill -0 $pid 2>/dev/null; then
-  echo "frpc: args mode running (pid $pid)" >&2
-  exit 0
-fi
-wait $pid
-code=$?
-echo "frpc: args mode failed (exit $code), trying /data/frpc.ini" >&2
-if [ ! -f /data/frpc.ini ]; then
-  echo "frpc: /data/frpc.ini missing, ignoring" >&2
-  exit 0
-fi
-/usr/local/bin/frpc -c /data/frpc.ini >/dev/null 2>&1 &
-pid=$!
-sleep 15
-if kill -0 $pid 2>/dev/null; then
-  echo "frpc: config mode running (pid $pid)" >&2
-  exit 0
-fi
-wait $pid
-code=$?
-echo "frpc: config mode failed (exit $code), ignoring" >&2
-exit 0
-FRPCEOF
-RUN chmod +x /etc/s6-overlay/s6-rc.d/frpc/run && \
+    printf '%s\n' \
+        '#!/command/with-contenv sh' \
+        '# frpc launcher: args mode first (15s probe), then /data/frpc.ini, else ignore.' \
+        'if [ -z "${FRPC_ARG:-}" ]; then echo "frpc: FRPC_ARG empty, skipping" >&2; exit 0; fi' \
+        '/usr/local/bin/frpc ${FRPC_ARG} >/dev/null 2>&1 &' \
+        'pid=$!' \
+        'sleep 15' \
+        'if kill -0 $pid 2>/dev/null; then echo "frpc: args mode running (pid $pid)" >&2; exit 0; fi' \
+        'wait $pid; code=$?' \
+        'echo "frpc: args mode failed (exit $code), trying /data/frpc.ini" >&2' \
+        'if [ ! -f /data/frpc.ini ]; then echo "frpc: /data/frpc.ini missing, ignoring" >&2; exit 0; fi' \
+        '/usr/local/bin/frpc -c /data/frpc.ini >/dev/null 2>&1 &' \
+        'pid=$!' \
+        'sleep 15' \
+        'if kill -0 $pid 2>/dev/null; then echo "frpc: config mode running (pid $pid)" >&2; exit 0; fi' \
+        'wait $pid; code=$?' \
+        'echo "frpc: config mode failed (exit $code), ignoring" >&2' \
+        'exit 0' \
+        > /etc/s6-overlay/s6-rc.d/frpc/run && \
+    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     echo "frpc s6 oneshot added"
 
