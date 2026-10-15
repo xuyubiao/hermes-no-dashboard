@@ -74,6 +74,7 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
 # if both fail, ignore (exit 0) so the rest of the boot continues.
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
     printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
+    printf '#!/command/with-contenv sh\nexit 1\n' > /etc/s6-overlay/s6-rc.d/frpc/up && \
     printf '%s\n' \
         '#!/command/with-contenv sh' \
         '# frpc launcher: args mode first (15s probe), then /data/frpc.ini, else ignore.' \
@@ -93,7 +94,7 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
         'echo "frpc: config mode failed (exit $code), ignoring" >&2' \
         'exit 0' \
         > /etc/s6-overlay/s6-rc.d/frpc/run && \
-    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run && \
+    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run /etc/s6-overlay/s6-rc.d/frpc/up && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     echo "frpc s6 oneshot added"
 
@@ -171,5 +172,6 @@ RUN bash -n /entrypoint.sh && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/sshd && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
     test -x /etc/s6-overlay/s6-rc.d/frpc/run && \
+    test -x /etc/s6-overlay/s6-rc.d/frpc/up && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     which picoclaw picoclaw-launcher tailscaled tailscale frpc
