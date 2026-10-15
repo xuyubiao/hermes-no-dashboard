@@ -70,31 +70,33 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
     echo "tailscale s6 service added"
 
 # frpc: oneshot (no s6 supervision, per user decision 2026-10-15).
-# Try args mode first with a 15s probe; on failure fall back to /data/frpc.ini;
+# s6-rc executes the 'up' file for oneshots (run/finish are longrun-only).
+# up: try /data/frpc.ini first (15s probe), then FRPC_ARG args mode;
 # if both fail, ignore (exit 0) so the rest of the boot continues.
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
     printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
-    printf '#!/command/with-contenv sh\nexit 1\n' > /etc/s6-overlay/s6-rc.d/frpc/up && \
     printf '%s\n' \
-        '#!/command/with-contenv sh' \
-        '# frpc launcher:  /data/frpc.ini first (15s probe), then args mode, else ignore.' \
-        'if [ ! -f /data/frpc.ini ]; then echo "frpc: /data/frpc.ini missing, ignoring" >&2; exit 0; fi' \
-        '/usr/local/bin/frpc -c /data/frpc.ini >/dev/null 2>&1 &' \
-        'pid=$!' \
-        'sleep 15' \
-        'if kill -0 $pid 2>/dev/null; then echo "frpc: config mode running (pid $pid)" >&2; exit 0; fi' \
-        'wait $pid; code=$?' \
-        'echo "frpc: config mode failed (exit $code) " >&2' \
+        '#!/bin/sh' \
+        '# frpc launcher: /data/frpc.ini first (15s probe), then args mode, else ignore.' \
+        'if [ -f /data/frpc.ini ]; then' \
+        '  echo "frpc: trying config mode: /data/frpc.ini" >&2' \
+        '  /usr/local/bin/frpc -c /data/frpc.ini >/dev/null 2>&1 &' \
+        '  pid=$!; sleep 15' \
+        '  if kill -0 $pid 2>/dev/null; then echo "frpc: config mode running (pid $pid)" >&2; exit 0; fi' \
+        '  wait $pid; code=$?; echo "frpc: config mode failed (exit $code)" >&2' \
+        'else' \
+        '  echo "frpc: /data/frpc.ini missing, trying args mode" >&2' \
+        'fi' \
         'if [ -z "${FRPC_ARG:-}" ]; then echo "frpc: FRPC_ARG empty, skipping" >&2; exit 0; fi' \
+        'echo "frpc: trying args mode" >&2' \
         '/usr/local/bin/frpc ${FRPC_ARG} >/dev/null 2>&1 &' \
-        'pid=$!' \
-        'sleep 15' \
+        'pid=$!; sleep 15' \
         'if kill -0 $pid 2>/dev/null; then echo "frpc: args mode running (pid $pid)" >&2; exit 0; fi' \
-        'wait $pid; code=$?' \
-        'echo "frpc: args mode failed (exit $code) " >&2' \
+        'wait $pid; code=$?; echo "frpc: args mode failed (exit $code)" >&2' \
         'exit 0' \
-        > /etc/s6-overlay/s6-rc.d/frpc/run && \
-    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run /etc/s6-overlay/s6-rc.d/frpc/up && \
+        > /usr/local/bin/frpc-launcher.sh && \
+    chmod +x /usr/local/bin/frpc-launcher.sh && \
+    printf '/command/with-contenv /usr/local/bin/frpc-launcher.sh\n' > /etc/s6-overlay/s6-rc.d/frpc/up && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     echo "frpc s6 oneshot added"
 
@@ -171,7 +173,7 @@ RUN bash -n /entrypoint.sh && \
     test -x /etc/s6-overlay/s6-rc.d/tailscale/run && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/sshd && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
-    test -x /etc/s6-overlay/s6-rc.d/frpc/run && \
-    test -x /etc/s6-overlay/s6-rc.d/frpc/up && \
+    test -x /usr/local/bin/frpc-launcher.sh && \
+    test -f /etc/s6-overlay/s6-rc.d/frpc/up && \
     test -f /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
     which picoclaw picoclaw-launcher tailscaled tailscale frpc
