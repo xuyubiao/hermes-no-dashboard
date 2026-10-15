@@ -69,15 +69,47 @@ RUN mkdir -p /etc/s6-overlay/s6-rc.d/tailscale && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/tailscale && \
     echo "tailscale s6 service added"
 
-# frpc: longrun, exec directly in foreground so s6 supervises it.
-# exit 3 = intentional skip (no FRPC_ARG); finish 125 on 3 = stay down, else restart.
+# frpc: oneshot (no s6 supervision, per user decision 2026-10-15).
+# Try args mode first with a 15s probe; on failure fall back to /data/frpc.ini;
+# if both fail, ignore (exit 0) so the rest of the boot continues.
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/frpc && \
-    printf 'longrun\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
-    printf '#!/command/with-contenv sh\nif [ -z "${FRPC_ARG:-}" ]; then echo "frpc: FRPC_ARG empty, staying down" >&2; exit 3; fi\nexec /usr/local/bin/frpc ${FRPC_ARG}\n' > /etc/s6-overlay/s6-rc.d/frpc/run && \
-    printf '#!/command/with-contenv sh\n# $1 = run exit code; 3 = intentional skip -> stay down, else allow restart\nif [ "$1" = "3" ]; then exit 125; fi\nexit 0\n' > /etc/s6-overlay/s6-rc.d/frpc/finish && \
-    chmod +x /etc/s6-overlay/s6-rc.d/frpc/run /etc/s6-overlay/s6-rc.d/frpc/finish && \
+    printf 'oneshot\n' > /etc/s6-overlay/s6-rc.d/frpc/type && \
+    cat > /etc/s6-overlay/s6-rc.d/frpc/run <<'FRPCEOF'
+#!/command/with-contenv sh
+# frpc launcher: args mode first (15s probe), then /data/frpc.ini, else ignore.
+if [ -z "${FRPC_ARG:-}" ]; then
+  echo "frpc: FRPC_ARG empty, skipping" >&2
+  exit 0
+fi
+/usr/local/bin/frpc ${FRPC_ARG} >/dev/null 2>&1 &
+pid=$!
+sleep 15
+if kill -0 $pid 2>/dev/null; then
+  echo "frpc: args mode running (pid $pid)" >&2
+  exit 0
+fi
+wait $pid
+code=$?
+echo "frpc: args mode failed (exit $code), trying /data/frpc.ini" >&2
+if [ ! -f /data/frpc.ini ]; then
+  echo "frpc: /data/frpc.ini missing, ignoring" >&2
+  exit 0
+fi
+/usr/local/bin/frpc -c /data/frpc.ini >/dev/null 2>&1 &
+pid=$!
+sleep 15
+if kill -0 $pid 2>/dev/null; then
+  echo "frpc: config mode running (pid $pid)" >&2
+  exit 0
+fi
+wait $pid
+code=$?
+echo "frpc: config mode failed (exit $code), ignoring" >&2
+exit 0
+FRPCEOF
+RUN chmod +x /etc/s6-overlay/s6-rc.d/frpc/run && \
     touch /etc/s6-overlay/s6-rc.d/user/contents.d/frpc && \
-    echo "frpc s6 service added"
+    echo "frpc s6 oneshot added"
 
 # Dashboard 404 placeholder (keeps the routed port listening for health check)
 COPY dashboard-placeholder.py /usr/local/bin/dashboard-placeholder.py
