@@ -1,8 +1,20 @@
 # hermes-no-dashboard
 
-Custom Hermes image based on `ghcr.io/insforge/insta-oss/templates/hermes:2.3.2`
+Custom Hermes image based on `ghcr.io/insforge/insta-oss/templates/hermes:2.4.0`
 with the dashboard disabled by default, plus an optional **picoclaw** agent,
 Tailscale, sshd, and optional frpc.
+
+## 部署方式（2026-10-17 起）
+
+线上 compute `hermes` 是模板创建的服务，InstaCloud 不允许它 `connect-repo`（HTTP 400），所以 **push 不会自动部署**。
+改完代码后在本仓库根目录执行（需账号级 `insta login`）：
+
+```bash
+insta project link 33257bc4-250d-4a85-9e17-1cc5475b7783
+insta deploy . --group hermes --port 8080
+```
+
+InstaCloud 会按本仓库 Dockerfile 远程构建并部署到 `hermes`。
 
 ## Secrets / 环境变量一览
 
