@@ -1,4 +1,4 @@
-FROM ghcr.io/insforge/insta-oss/templates/hermes:2.3.2
+FROM ghcr.io/insforge/insta-oss/templates/hermes:2.4.0
 
 # Pinned picoclaw version
 ARG PICOCLAW_VERSION=v0.3.1
